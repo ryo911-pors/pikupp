@@ -66,6 +66,7 @@
 - **解消（UPDATE）は FastAPI 経由**。理由：報告後6時間ルール・自演防止の検証が必要。
 - SELECT は anon 含む全員に公開（地図表示のため）。
 - 地図読取は `list_hotspots()` RPC（migration `20260612000002`）。SECURITY INVOKER（呼び出し元のRLSを尊重）で、geography(POINT,4326) から ST_Y/ST_X で lat/lng を取り出して返す。
+- 報告は `report_hotspot()` RPC（migration `20260612000003`）。reporter_id をクライアントから受け取らず `auth.uid()` を使う。RLS の WITH CHECK と RPC の二重で reporter_id 詐称を防ぐ（多層防御）。
 
 ### posts（投稿）
 - SELECT は全員公開（フィード）。INSERT は `auth.uid() = user_id` 強制。DELETE は自分の投稿のみ。
