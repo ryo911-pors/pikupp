@@ -6,3 +6,13 @@ frontend/.next/
 .DS_Store
 *.log
 supabase/.temp/
+
+# backend (Python)
+backend/.env
+!backend/.env.example
+backend/.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/

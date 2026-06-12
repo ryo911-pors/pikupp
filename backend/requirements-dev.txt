@@ -1,0 +1,6 @@
+# 開発/CI 用ツール（CLAUDE.md §1 の検証ループ）
+-r requirements.txt
+ruff>=0.6
+mypy>=1.11
+pytest>=8.0
+httpx>=0.27  # FastAPI TestClient が依存

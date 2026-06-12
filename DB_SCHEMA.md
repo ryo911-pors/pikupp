@@ -63,7 +63,8 @@
 - `location` は PostGIS の `GEOGRAPHY(POINT, 4326)`。4326 = GPS標準座標系（WGS84）。
 - GiST 空間インデックスを張ってある（近傍検索 `nearby_hotspots` RPC 用）。
 - **報告（INSERT）はクライアント直叩き + RLS**（`auth.uid() = reporter_id` を WITH CHECK で強制）。
-- **解消（UPDATE）は FastAPI 経由**。理由：報告後6時間ルール・自演防止の検証が必要。
+- **解消（UPDATE）は FastAPI 経由**。理由：自演防止（写真＋GPS現地証明）・冪等性の検証が必要。
+  - ⚠️ 旧「6時間ルール」「本人は半額」はいずれも撤廃。解消の最終確定仕様は CLAUDE.md `## 10.5 解消ルール` を参照。
 - SELECT は anon 含む全員に公開（地図表示のため）。
 - 地図読取は `list_hotspots()` RPC（migration `20260612000002`）。SECURITY INVOKER（呼び出し元のRLSを尊重）で、geography(POINT,4326) から ST_Y/ST_X で lat/lng を取り出して返す。
 - 報告は `report_hotspot()` RPC（migration `20260612000003`）。reporter_id をクライアントから受け取らず `auth.uid()` を使う。RLS の WITH CHECK と RPC の二重で reporter_id 詐称を防ぐ（多層防御）。
@@ -75,8 +76,11 @@
 - `UNIQUE(user_id, post_id)` で二重いいねを DB レベルで防止。
 
 ### hotspot_resolutions（解消記録）
-- `UNIQUE(hotspot_id)` で「1ホットスポット = 1解消」を保証。
+- `UNIQUE(hotspot_id)` で「1ホットスポット = 1解消」を保証（冪等性）。
 - 書き込みは FastAPI 経由のみ。
+- 解消の最終確定仕様（誰が解消可・写真/GPS現地証明・感謝ボーナス・2段階実装）は CLAUDE.md `## 10.5 解消ルール`。
+  ポイント付与は**解消者は本人/他人問わず満額 +100**。他人解消なら報告者に +20（感謝ボーナス）を加え `point_logs` 2行、本人解消は +100 のみで1行。
+  ⚠️ 半額（本人+50）は撤廃。自演防止は写真＋GPS現地証明で行う。
 
 ### point_logs（★ Source of Truth）
 - **このプロジェクトで最重要のテーブル。** ポイントの唯一の真実。
