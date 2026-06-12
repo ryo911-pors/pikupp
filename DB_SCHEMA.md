@@ -65,6 +65,7 @@
 - **報告（INSERT）はクライアント直叩き + RLS**（`auth.uid() = reporter_id` を WITH CHECK で強制）。
 - **解消（UPDATE）は FastAPI 経由**。理由：報告後6時間ルール・自演防止の検証が必要。
 - SELECT は anon 含む全員に公開（地図表示のため）。
+- 地図読取は `list_hotspots()` RPC（migration `20260612000002`）。SECURITY INVOKER（呼び出し元のRLSを尊重）で、geography(POINT,4326) から ST_Y/ST_X で lat/lng を取り出して返す。
 
 ### posts（投稿）
 - SELECT は全員公開（フィード）。INSERT は `auth.uid() = user_id` 強制。DELETE は自分の投稿のみ。
