@@ -217,7 +217,7 @@ devices:       id, device_type, location(PostGIS), last_seen_at   -- 将来
 ```
 POST  /api/v1/sessions/start          # セッション開始
 POST  /api/v1/sessions/{id}/end       # 終了・ポイント計算（冪等であること）
-PATCH /api/v1/hotspots/{id}/resolve   # 解消判定（自演防止=写真＋GPS現地証明・冪等性を検証。確定仕様は ## 10.5）
+POST  /api/v1/hotspots/{hotspot_id}/resolve  # 解消判定（自演防止=写真＋GPS現地証明・冪等性を検証。実装済み 7-A-2。確定仕様は ## 10.5）
 POST  /api/v1/reports                 # 外部デバイスからの統一報告（将来）
 ```
 
@@ -289,7 +289,7 @@ RPC   rankings()                       # ランキング取得（実体化ビュ
 
 ### 経路（どこで実装するか）
 - **FastAPI（service_role）経由のみ**。理由：信頼が要る書き込み＋不正対策ロジック（本人判定による感謝ボーナス要否・現地証明・冪等）があるため。
-- エンドポイント：`PATCH /api/v1/hotspots/{id}/resolve`（`## 8` 参照）。
+- エンドポイント：`POST /api/v1/hotspots/{hotspot_id}/resolve`（`## 8` 参照。7-A-2 で実装済み）。
 - 🪂 脱出ハッチ発動時は `SECURITY DEFINER` + `auth.uid()` の Postgres 関数 RPC に退避してよい（`## 4` 脱出ハッチ参照）。冪等性は UNIQUE 制約で守られるので退避しても二重付与は防げる。
 - ⚠️ **backend の JWT 検証方式（HS256 共有secret / JWKS 非対称）は未確定。** 解消エンドポイントに適用する段で、実際に検証を走らせて確定する（7-A-1 では HS256 で土台のみ実装済み。`app/auth/jwt.py`）。
 
