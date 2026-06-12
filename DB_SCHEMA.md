@@ -99,6 +99,23 @@
 - `spatial_ref_sys` は RLS 無効だが **これは正常**。PostGIS の座標系辞書（公開前提・守る秘密なし）。
 - ポリシーが存在しない操作は **デフォルト DENY**（拒否）。つまり「明示的に許可したものだけ通る」。
 
+### ⚠️ GRANT 抜けで全テーブル 42501 になっていた件（migration `20260612000001` で修正）
+- 初期マイグレーション（`20260611000001`）は **RLS ポリシーは定義したが、テーブルへの GRANT を付けていなかった**。
+  そのため client 直叩き（anon / authenticated）が全テーブルで `permission denied for table`（SQLSTATE **42501**）になり、
+  「Supabase 直 + RLS」経路（ランキング・投稿フィード・地図ピン読取など）が丸ごと機能していなかった。
+- 修正：`20260612000001_grant_table_privileges.sql` で anon=SELECT、authenticated=CRUD、service_role=ALL を付与。
+  併せて `ALTER DEFAULT PRIVILEGES` で以後の新テーブルにも自動適用。
+- **1行教訓：RLS だけでは読めない。テーブルへの GRANT（anon / authenticated）も必須。**
+  GRANT＝「テーブルに触れてよい」許可面、RLS＝実際の行ゲート。両方そろって初めて client 直叩きが通る
+  （GRANT を広く付けてもポリシー無しの操作は RLS が DENY するので安全）。
+
+### メール確認（Confirm email）ON とトリガーの挙動
+- Supabase の **メール確認は ON**（デモUX判断でユーザーが選択）。サインアップ直後はセッション無し→確認リンクを開くまでログイン不可。
+- **未確認ユーザーでも `on_auth_user_created` トリガーは発火する**。`AFTER INSERT ON auth.users` なので、
+  メール確認の有無に関係なくサインアップ時点で `public.users` に行ができる（実測：行の `created_at` が `email_confirmed_at` より前）。
+- **本番化メモ：未確認のまま放置された `auth.users`／`public.users` の行が溜まる**。本番運用するなら
+  未確認ユーザーの定期掃除（一定期間 `email_confirmed_at IS NULL` の行を削除）が要る。デモでは放置で可。
+
 ---
 
 ## 4. 既知の TODO（このスキーマに紐づく未実装）
