@@ -75,6 +75,8 @@ pytest              # ユニットテスト
 ### バックエンド
 - **Python 3.13** / **FastAPI**（非同期処理）/ **Pydantic**（型検証）/ **SQLAlchemy**（ORM）
   - > 実物が正・ドキュメント追従の方針（Next.js のバージョン同期と同じ）。3.12 指定だったがローカル/Dockerfile とも 3.13 で建てたため 3.13 に揃えた。
+  - ⚠️ 教訓: **Supabase pooler(transaction mode / 6543)** では asyncpg の prepared statement を無効化する（`statement_cache_size=0` + `NullPool`）。でないと pgbouncer で `prepared statement does not exist` で落ちる。
+  - ⚠️ 教訓: **`timestamptz` 列には `DateTime(timezone=True)`** を使う。naive な DateTime のままだと aware datetime 投入時に `can't subtract offset-naive and offset-aware` 型エラーになる。
 
 ### データ層
 - **Supabase**（PostgreSQL + PostGIS + Auth + Storage）
@@ -327,12 +329,15 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 
 ### backend/.env
 ```
+# --- 今必要な3つ（Phase 1） ---
 SUPABASE_URL=                 # JWKS検証にも使う（/auth/v1/.well-known/jwks.json）
 SUPABASE_SERVICE_ROLE_KEY=    # RLS貫通の全権鍵。内部処理のみ
-DATABASE_URL=
-FIREBASE_CREDENTIALS=
+DATABASE_URL=                 # ⚠ 直結(db.<ref>.supabase.co)はIPv4で解決不可。プーラー(aws-0-<region>.pooler.supabase.com)を使う
+
+# --- 将来 ---
+# FIREBASE_CREDENTIALS=       # Phase 2用（FCMプッシュ通知）。Phase 1では不要
 ```
-> JWT 検証は **JWKS(ES256) で確定**（公開鍵で検証）。Legacy の `SUPABASE_JWT_SECRET`(HS256) は廃止＝不要。
+> JWT 検証は **JWKS(ES256) で確定**（公開鍵で検証）。Legacy の `SUPABASE_JWT_SECRET`(HS256) は廃止＝`.env` に置かない。
 
 ---
 
