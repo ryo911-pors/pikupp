@@ -3,6 +3,6 @@ fastapi>=0.115,<1.0
 uvicorn[standard]>=0.30,<1.0
 pydantic>=2.7,<3.0
 pydantic-settings>=2.3,<3.0
-pyjwt>=2.9,<3.0
+pyjwt[crypto]>=2.9,<3.0  # JWKS(ES256) 検証に cryptography が必要
 sqlalchemy[asyncio]>=2.0,<3.0
 asyncpg>=0.30,<1.0  # 本番 Postgres 用 async ドライバ

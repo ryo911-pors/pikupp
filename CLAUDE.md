@@ -291,7 +291,7 @@ RPC   rankings()                       # ランキング取得（実体化ビュ
 - **FastAPI（service_role）経由のみ**。理由：信頼が要る書き込み＋不正対策ロジック（本人判定による感謝ボーナス要否・現地証明・冪等）があるため。
 - エンドポイント：`POST /api/v1/hotspots/{hotspot_id}/resolve`（`## 8` 参照。7-A-2 で実装済み）。
 - 🪂 脱出ハッチ発動時は `SECURITY DEFINER` + `auth.uid()` の Postgres 関数 RPC に退避してよい（`## 4` 脱出ハッチ参照）。冪等性は UNIQUE 制約で守られるので退避しても二重付与は防げる。
-- ⚠️ **backend の JWT 検証方式（HS256 共有secret / JWKS 非対称）は未確定。** 解消エンドポイントに適用する段で、実際に検証を走らせて確定する（7-A-1 では HS256 で土台のみ実装済み。`app/auth/jwt.py`）。
+- ✅ **backend の JWT 検証方式は JWKS（非対称鍵 / ES256）で確定。** `{SUPABASE_URL}/auth/v1/.well-known/jwks.json` の公開鍵で検証する（backend は秘密鍵を持たない）。Legacy の HS256 共有secret（SUPABASE_JWT_SECRET）は廃止。実装: `app/auth/jwt.py`。実トークンでライブ検証済み（7-A-2 後の確定）。
 
 ---
 
@@ -327,12 +327,12 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 
 ### backend/.env
 ```
-SUPABASE_URL=
+SUPABASE_URL=                 # JWKS検証にも使う（/auth/v1/.well-known/jwks.json）
 SUPABASE_SERVICE_ROLE_KEY=    # RLS貫通の全権鍵。内部処理のみ
-SUPABASE_JWT_SECRET=          # JWT検証用
 DATABASE_URL=
 FIREBASE_CREDENTIALS=
 ```
+> JWT 検証は **JWKS(ES256) で確定**（公開鍵で検証）。Legacy の `SUPABASE_JWT_SECRET`(HS256) は廃止＝不要。
 
 ---
 
