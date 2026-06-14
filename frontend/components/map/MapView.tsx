@@ -14,6 +14,7 @@ import {
 import { OSAKA_CENTER, DUMMY_HOTSPOTS } from '@/lib/dummyHotspots'
 import { createClient } from '@/lib/supabase'
 import { fetchHotspots, reportHotspot, type HotspotStatus } from '@/lib/hotspots'
+import { resolveHotspot, ApiAuthError, AlreadyResolvedError } from '@/lib/api'
 
 // 地図ピンの共通形。Supabase 由来とダミー由来を同じ形に正規化して描画する。
 type MarkerData = {
@@ -36,16 +37,18 @@ const TRASH_LABEL: Record<string, string> = {
 const TRASH_OPTIONS = Object.entries(TRASH_LABEL) // [code, 日本語]
 
 // ピン形状の SVG DivIcon。画像ファイル不要で webpack ビルド問題を回避。
-// status='open'→赤 / 'resolved'→緑 / 'picked'（報告位置の仮ピン）→青。
+// Quiet Luxury のトーンダウン配色（globals.css のトークンと対応）：
+//   open（未解消）→ くすんだテラコッタ / resolved（解消）→ セージ
+//   picked（報告位置の仮ピン）→ 落ち着いたチャコール
 function createPinIcon(kind: HotspotStatus | 'picked'): L.DivIcon {
   const fill =
-    kind === 'open' ? '#ef4444' : kind === 'resolved' ? '#22c55e' : '#3b82f6'
+    kind === 'open' ? '#b07a5e' : kind === 'resolved' ? '#7c8471' : '#4a4845'
   return L.divIcon({
     className: '',
     html: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 36" width="24" height="36">
       <path d="M12 0C5.37 0 0 5.37 0 12c0 7.87 12 24 12 24S24 19.87 24 12C24 5.37 18.63 0 12 0z"
-            fill="${fill}" stroke="white" stroke-width="1.5"/>
-      <circle cx="12" cy="12" r="4.5" fill="white"/>
+            fill="${fill}" stroke="#fafaf8" stroke-width="1.5"/>
+      <circle cx="12" cy="12" r="4.5" fill="#fafaf8"/>
     </svg>`,
     iconSize: [24, 36],
     iconAnchor: [12, 36],
@@ -83,6 +86,9 @@ export default function MapView() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+
+  // 解消フロー用：解消中のピン key（連打防止＋「解消中…」表示に使う）
+  const [resolvingKey, setResolvingKey] = useState<string | null>(null)
 
   // hotspots を取得して markers に反映（報告後の再取得にも使う）。
   const load = useCallback(async () => {
@@ -134,6 +140,12 @@ export default function MapView() {
     return () => sub.subscription.unsubscribe()
   }, [])
 
+  // ログアウト。onAuthStateChange が userId を null に更新する（閲覧は anon で継続）。
+  async function handleLogout() {
+    const supabase = createClient()
+    await supabase.auth.signOut()
+  }
+
   function startReport() {
     setReportMode(true)
     setPicked(null)
@@ -173,11 +185,39 @@ export default function MapView() {
     }
   }
 
+  // ピンを解消する。解消者は backend が JWT から特定する（key=hotspot_id を渡すだけ）。
+  // 7-A: 写真・GPS は送らない（任意。7-B で必須化）。
+  async function handleResolve(m: MarkerData) {
+    setResolvingKey(m.key)
+    setError(null)
+    setNotice(null)
+    try {
+      const result = await resolveHotspot(m.key)
+      // 成功 → 再取得してピンを resolved（セージ）に反映
+      await load()
+      const bonus =
+        result.reporter_bonus > 0 ? `（報告者に +${result.reporter_bonus}pt）` : ''
+      setNotice(`解消しました　+${result.resolver_points}pt${bonus}`)
+    } catch (e) {
+      if (e instanceof ApiAuthError) {
+        setError('ログインが必要です。ログインし直してください。')
+      } else if (e instanceof AlreadyResolvedError) {
+        setError('既に解消されています。')
+        await load() // 最新状態（セージ）に合わせる
+      } else {
+        setError(e instanceof Error ? e.message : '解消に失敗しました。')
+      }
+    } finally {
+      setResolvingKey(null)
+    }
+  }
+
   return (
-    <div className="relative h-screen w-full">
+    <div className="relative h-screen w-full bg-base">
       <MapContainer
         center={OSAKA_CENTER}
         zoom={13}
+        zoomControl={false}
         style={{ height: '100%', width: '100%' }}
       >
         <TileLayer
@@ -200,20 +240,50 @@ export default function MapView() {
             icon={createPinIcon(m.status)}
           >
             <Popup>
-              <strong>{m.title}</strong>
-              <br />
-              状態: {m.status === 'open' ? '🔴 未解消' : '✅ 解消済み'}
-              {usingFallback && (
-                <>
-                  <br />
-                  <em>(ダミーデータ)</em>
-                </>
+              <span className="text-[13px] font-medium tracking-wide text-ink">
+                {m.title}
+              </span>
+              <span className="mt-1 flex items-center gap-1.5 text-[12px] text-muted">
+                <span
+                  aria-hidden
+                  className="inline-block h-1.5 w-1.5 rounded-full"
+                  style={{
+                    background:
+                      m.status === 'open' ? '#b07a5e' : '#7c8471',
+                  }}
+                />
+                {m.status === 'open' ? '未解消' : '解消済み'}
+                {usingFallback && (
+                  <span className="text-faint">・サンプル</span>
+                )}
+              </span>
+              {/* 解消UI：DB由来かつ未解消のピンのみ。resolved には出さない。 */}
+              {m.source === 'db' && m.status === 'open' && (
+                <span className="mt-3 block">
+                  {userId === null ? (
+                    <Link
+                      href="/login"
+                      className="text-[12px] font-medium tracking-wide text-sage underline-offset-2 hover:underline"
+                    >
+                      ログインして解消する
+                    </Link>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void handleResolve(m)}
+                      disabled={resolvingKey === m.key}
+                      className="rounded-md bg-sage px-3.5 py-1.5 text-[12px] font-medium tracking-wide text-white transition-colors duration-200 hover:bg-sage-hover disabled:opacity-50"
+                    >
+                      {resolvingKey === m.key ? '解消中…' : '解消する'}
+                    </button>
+                  )}
+                </span>
               )}
             </Popup>
           </Marker>
         ))}
 
-        {/* 報告位置の仮ピン（青） */}
+        {/* 報告位置の仮ピン（チャコール） */}
         {picked && (
           <Marker position={[picked.lat, picked.lng]} icon={createPinIcon('picked')}>
             <Popup>報告予定地点</Popup>
@@ -221,40 +291,77 @@ export default function MapView() {
         )}
       </MapContainer>
 
-      {/* 操作パネル（地図の上にオーバーレイ）。Leaflet コントロールより前面に出す */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-[1000] flex justify-center p-3">
-        <div className="pointer-events-auto w-full max-w-sm rounded-xl bg-white/95 p-3 shadow-lg backdrop-blur">
+      {/* ── ヘッダー（ブランド + 認証状態）。Leaflet コントロールより前面 ── */}
+      <header className="pointer-events-none absolute inset-x-0 top-0 z-[1000]">
+        <div className="pointer-events-auto flex items-center justify-between border-b border-line bg-base/85 px-5 py-3 backdrop-blur-sm">
+          <Link href="/" className="flex items-center gap-2">
+            <span
+              aria-hidden
+              className="inline-block h-1.5 w-1.5 rounded-full bg-sage"
+            />
+            <span className="text-[15px] font-light tracking-[0.18em] text-ink">
+              Pikupp
+            </span>
+          </Link>
+
           {userId === null ? (
-            <p className="text-sm text-gray-600">
-              ゴミを見つけたら報告できます。{' '}
-              <Link href="/login" className="font-medium text-green-600 hover:underline">
+            <Link
+              href="/login"
+              className="text-[12px] tracking-wide text-muted transition-colors duration-200 hover:text-ink"
+            >
+              ログイン
+            </Link>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void handleLogout()}
+              className="text-[12px] tracking-wide text-muted transition-colors duration-200 hover:text-ink"
+            >
+              ログアウト
+            </button>
+          )}
+        </div>
+      </header>
+
+      {/* ── 操作パネル（地図下部にフロート）。下部タブバー（z-[1100]）と重ならないよう pb で上に逃がす ── */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1000] flex justify-center px-4 pt-4 pb-20">
+        <div className="pk-fade-in pointer-events-auto w-full max-w-sm rounded-lg border border-line bg-surface/95 p-4 backdrop-blur-sm">
+          {userId === null ? (
+            <p className="text-[13px] leading-relaxed text-muted">
+              ゴミを見つけたら報告できます。
+              <Link
+                href="/login"
+                className="text-sage underline-offset-2 hover:underline"
+              >
                 ログイン
               </Link>
-              すると報告ボタンが表示されます。
+              すると報告できます。
             </p>
           ) : !reportMode ? (
             <button
               type="button"
               onClick={startReport}
-              className="w-full rounded-lg bg-green-600 py-2 font-medium text-white transition hover:bg-green-700"
+              className="w-full rounded-md bg-sage py-2.5 text-[14px] font-medium tracking-wide text-white transition-colors duration-200 hover:bg-sage-hover"
             >
-              ＋ ここで報告
+              ＋　ここで報告
             </button>
           ) : (
-            <div className="space-y-2">
-              {notice && <p className="text-sm text-gray-700">{notice}</p>}
+            <div className="space-y-3">
+              {notice && (
+                <p className="text-[13px] leading-relaxed text-muted">{notice}</p>
+              )}
 
               {picked && (
                 <>
-                  <p className="text-xs text-gray-500">
-                    選択地点: {picked.lat.toFixed(5)}, {picked.lng.toFixed(5)}
+                  <p className="text-[11px] tracking-wide text-faint">
+                    選択地点　{picked.lat.toFixed(5)}, {picked.lng.toFixed(5)}
                   </p>
-                  <label className="block text-sm text-gray-700">
+                  <label className="block text-[12px] tracking-wide text-muted">
                     ゴミの種類（任意）
                     <select
                       value={trashType}
                       onChange={(e) => setTrashType(e.target.value)}
-                      className="mt-1 w-full rounded-lg border border-gray-300 px-2 py-1.5 text-gray-900"
+                      className="mt-1.5 w-full rounded-md border border-line bg-raised px-3 py-2 text-[14px] text-body focus:border-sage focus:outline-none"
                     >
                       <option value="">未選択</option>
                       {TRASH_OPTIONS.map(([code, label]) => (
@@ -268,17 +375,20 @@ export default function MapView() {
               )}
 
               {error && (
-                <p role="alert" className="rounded bg-red-50 px-2 py-1 text-sm text-red-600">
+                <p
+                  role="alert"
+                  className="rounded-md bg-alert-soft px-3 py-2 text-[12px] text-alert"
+                >
                   {error}
                 </p>
               )}
 
-              <div className="flex gap-2">
+              <div className="flex gap-2.5">
                 <button
                   type="button"
                   onClick={submitReport}
                   disabled={!picked || submitting}
-                  className="flex-1 rounded-lg bg-green-600 py-2 text-sm font-medium text-white transition hover:bg-green-700 disabled:opacity-50"
+                  className="flex-1 rounded-md bg-sage py-2.5 text-[14px] font-medium tracking-wide text-white transition-colors duration-200 hover:bg-sage-hover disabled:opacity-50"
                 >
                   {submitting ? '送信中…' : '報告する'}
                 </button>
@@ -286,7 +396,7 @@ export default function MapView() {
                   type="button"
                   onClick={cancelReport}
                   disabled={submitting}
-                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 transition hover:bg-gray-100 disabled:opacity-50"
+                  className="rounded-md border border-line px-4 py-2.5 text-[14px] tracking-wide text-muted transition-colors duration-200 hover:bg-raised disabled:opacity-50"
                 >
                   キャンセル
                 </button>
@@ -294,8 +404,22 @@ export default function MapView() {
             </div>
           )}
 
-          {!reportMode && notice && (
-            <p className="mt-2 text-xs text-green-700">{notice}</p>
+          {!reportMode && (
+            <>
+              {notice && (
+                <p className="mt-3 rounded-md bg-sage-soft px-3 py-2 text-[12px] text-sage-hover">
+                  {notice}
+                </p>
+              )}
+              {error && (
+                <p
+                  role="alert"
+                  className="mt-3 rounded-md bg-alert-soft px-3 py-2 text-[12px] text-alert"
+                >
+                  {error}
+                </p>
+              )}
+            </>
           )}
         </div>
       </div>

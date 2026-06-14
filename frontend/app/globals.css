@@ -1,26 +1,130 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* =========================================================================
+   Pikupp デザイントークン（Quiet Luxury）— 単一の真実の源
+   色・フォントはここで一元管理する。他画面へ展開するときもここを参照する。
+   Tailwind v4: @theme に置いたトークンは bg-base / text-ink 等の
+   ユーティリティとして自動生成される（tailwind.config.ts は不要）。
+   ========================================================================= */
+@theme {
+  /* --- ベース面（オフホワイト〜白）--- */
+  --color-base: #fafaf8; /* 画面の地。わずかに温かいオフホワイト */
+  --color-surface: #ffffff; /* カード等の最前面 */
+  --color-raised: #f4f3ef; /* 一段沈めた面（入力欄背景など） */
+
+  /* --- インク（チャコール〜ウォームグレー段階）--- */
+  --color-ink: #1a1a1a; /* 見出し・主要テキスト（チャコール）*/
+  --color-body: #3f3d3a; /* 本文 */
+  --color-muted: #6f6d67; /* 補助テキスト（ウォームグレー）*/
+  --color-faint: #9c9a94; /* さらに薄い注記 */
+  --color-line: #e7e4dd; /* 構造を見せる 1px ボーダー（薄グレー）*/
+
+  /* --- 差し色：くすんだセージグリーン（彩度を徹底的に抑える）--- */
+  --color-sage: #7c8471;
+  --color-sage-hover: #6b7261;
+  --color-sage-soft: #eef0ea; /* セージの極薄面（成功通知の地など）*/
+
+  /* --- 地図ピン --- */
+  --color-terracotta: #b07a5e; /* 未解消（くすんだテラコッタ）*/
+
+  /* --- 状態色（彩度低めに寄せる）--- */
+  --color-alert: #a85a4e; /* エラー（くすんだ赤茶）*/
+  --color-alert-soft: #f4ece9;
+
+  /* --- タイポグラフィ --- */
+  --font-sans: var(--font-noto-sans-jp), ui-sans-serif, system-ui, sans-serif;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  background: var(--color-base);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-base);
+  color: var(--color-body);
+  font-family: var(--font-sans);
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* 滑らかなフェード/スライド（200–300ms）。派手にしない。 */
+@keyframes pk-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.pk-fade-in {
+  animation: pk-fade-in 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* =========================================================================
+   Leaflet のデフォルト UI を Quiet Luxury に上書き
+   （ポップアップ・ズームコントロール・帰属表示）
+   ========================================================================= */
+
+/* ポップアップ：陰影をほぼ消し、1px ボーダーで構造を見せる */
+.leaflet-popup-content-wrapper {
+  background: var(--color-surface);
+  color: var(--color-body);
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(26, 26, 26, 0.06);
+}
+
+.leaflet-popup-content {
+  margin: 14px 16px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.leaflet-popup-tip {
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  box-shadow: none;
+}
+
+.leaflet-popup-close-button {
+  color: var(--color-faint) !important;
+}
+
+/* ズームコントロール：白地・薄ボーダー・チャコール文字 */
+.leaflet-bar a,
+.leaflet-bar a:hover {
+  background: var(--color-surface);
+  color: var(--color-ink);
+  border-bottom-color: var(--color-line);
+  width: 32px;
+  height: 32px;
+  line-height: 32px;
+  font-weight: 300;
+}
+
+.leaflet-bar {
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.leaflet-bar a:hover {
+  background: var(--color-raised);
+}
+
+/* 帰属表示：控えめに */
+.leaflet-control-attribution {
+  background: rgba(250, 250, 248, 0.8) !important;
+  color: var(--color-faint) !important;
+  font-size: 10px;
+}
+
+.leaflet-control-attribution a {
+  color: var(--color-muted) !important;
 }
