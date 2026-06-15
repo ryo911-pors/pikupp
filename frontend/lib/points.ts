@@ -24,6 +24,7 @@ export const POINT_TYPE_LABELS: Record<string, string> = {
   hotspot_reported: 'ホットスポット報告',
   hotspot_resolved: 'ホットスポット解消',
   hotspot_resolved_thanks: '感謝ボーナス',
+  session_complete: 'ゴミ拾い活動',
   session: 'ゴミ拾い活動',
 }
 
