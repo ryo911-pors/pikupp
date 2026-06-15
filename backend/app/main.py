@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import health, hotspots
+from app.routers import health, hotspots, sessions
 
 app = FastAPI(title="Pikupp API", version="0.1.0")
 
@@ -22,3 +22,4 @@ app.add_middleware(
 
 app.include_router(health.router)  # /health（バージョン無し・疎通確認用）
 app.include_router(hotspots.router, prefix="/api/v1")  # APIバージョニング
+app.include_router(sessions.router, prefix="/api/v1")  # フローA（セッション）

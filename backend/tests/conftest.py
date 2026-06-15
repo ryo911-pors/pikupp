@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import StaticPool
 
-from app.db.models import Base, Hotspot, User
+from app.db.models import Base, Hotspot, Session, User
 
 
 @pytest_asyncio.fixture
@@ -58,3 +58,13 @@ async def seed_hotspot(
 ) -> None:
     async with factory() as s, s.begin():
         s.add(Hotspot(id=hotspot_id, reporter_id=reporter_id, status=status))
+
+
+async def seed_session(
+    factory: async_sessionmaker[AsyncSession],
+    session_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    """終了前（ended_at=None）のセッションを1件作る。"""
+    async with factory() as s, s.begin():
+        s.add(Session(id=session_id, user_id=user_id))

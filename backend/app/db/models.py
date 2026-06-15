@@ -32,6 +32,20 @@ class User(Base):
     email: Mapped[str] = mapped_column(default="")
 
 
+class Session(Base):
+    __tablename__ = "sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    # timestamptz（本番）に合わせ timezone=True。
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    # 終了時にクライアントの GPS 計測値を保存する（avg_speed はサーバー側で再計算した値）。
+    distance_m: Mapped[float | None] = mapped_column(default=None)
+    duration_sec: Mapped[int | None] = mapped_column(default=None)
+    avg_speed: Mapped[float | None] = mapped_column(default=None)
+
+
 class Hotspot(Base):
     __tablename__ = "hotspots"
 
