@@ -5,7 +5,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 
 // 未ログインではアクセスさせないページ（前方一致）。
 // /map は公開 read（地図表示）なので保護しない。/ と /login も当然公開。
-const PROTECTED_PREFIXES = ['/home', '/session', '/post', '/result']
+const PROTECTED_PREFIXES = ['/home', '/session', '/post', '/result', '/feed', '/dashboard']
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })

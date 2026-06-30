@@ -11,6 +11,7 @@ import { createClient } from '@/lib/supabase'
 const TABS = [
   { href: '/home', label: 'ホーム' },
   { href: '/map', label: 'マップ' },
+  { href: '/feed', label: 'フィード' },
   { href: '/dashboard', label: '記録' },
 ] as const
 
