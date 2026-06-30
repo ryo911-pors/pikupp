@@ -115,12 +115,14 @@ export default function SessionPage() {
     try {
       const result = await endSession(sessionId, { distanceM: distM, durationSec })
       const q = new URLSearchParams({
+        session_id: result.session_id,
         points: String(result.points),
         distance_m: String(result.distance_m),
         duration_sec: String(result.duration_sec),
         avg_speed: result.avg_speed.toFixed(1),
       })
-      router.push(`/result?${q.toString()}`)
+      // 写真投稿ステップへ（任意。スキップでも /result に進む）。
+      router.push(`/post?${q.toString()}`)
     } catch (e) {
       if (e instanceof ApiAuthError) {
         router.push('/login')
