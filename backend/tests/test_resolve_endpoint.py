@@ -18,6 +18,7 @@ from app.auth.jwt import get_current_user_id
 from app.db.database import get_session
 from app.db.models import HotspotResolution
 from app.main import app
+from app.routers.hotspots import verify_resolution_evidence
 from tests.conftest import seed_hotspot, seed_user
 
 Factory = async_sessionmaker[AsyncSession]
@@ -36,13 +37,20 @@ async def test_resolve_endpoint_uses_jwt_not_body(session_factory: Factory) -> N
     # JWT 由来の解消者を resolver_id に固定する
     app.dependency_overrides[get_session] = _override_session
     app.dependency_overrides[get_current_user_id] = lambda: str(resolver_id)
+    # 7-B の現地証明（PostGIS）はテスト DB(SQLite) で動かせないので no-op に差し替える。
+    app.dependency_overrides[verify_resolution_evidence] = lambda: None
     try:
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
             res = await client.post(
                 f"/api/v1/hotspots/{hotspot_id}/resolve",
                 # body に偽の user_id（報告者ID）を混ぜても無視されるべき
-                json={"user_id": str(reporter_id), "photo_url": None},
+                json={
+                    "user_id": str(reporter_id),
+                    "photo_url": "https://example.com/p.jpg",
+                    "lat": 34.7,
+                    "lng": 135.5,
+                },
             )
         assert res.status_code == 200
         data = res.json()
@@ -75,8 +83,9 @@ async def test_resolve_endpoint_requires_auth(session_factory: Factory) -> None:
         async with session_factory() as s:
             yield s
 
-    # 認証だけ本物にする（DB は差し替え）
+    # 認証だけ本物にする（DB・7-B検証は差し替え）
     app.dependency_overrides[get_session] = _override_session
+    app.dependency_overrides[verify_resolution_evidence] = lambda: None
     try:
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:

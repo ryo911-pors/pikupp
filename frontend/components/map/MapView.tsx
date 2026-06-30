@@ -3,7 +3,7 @@
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
 import Link from 'next/link'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   MapContainer,
   TileLayer,
@@ -15,6 +15,22 @@ import { OSAKA_CENTER, DUMMY_HOTSPOTS } from '@/lib/dummyHotspots'
 import { createClient } from '@/lib/supabase'
 import { fetchHotspots, reportHotspot, type HotspotStatus } from '@/lib/hotspots'
 import { resolveHotspot, ApiAuthError, AlreadyResolvedError } from '@/lib/api'
+import { uploadPostPhoto } from '@/lib/posts'
+
+// 現在地を1点だけ取得する Promise ラッパ（7-B 現地証明用）。
+function getCurrentPosition(): Promise<{ lat: number; lng: number }> {
+  return new Promise((resolve, reject) => {
+    if (!('geolocation' in navigator)) {
+      reject(new Error('位置情報に対応していません'))
+      return
+    }
+    navigator.geolocation.getCurrentPosition(
+      (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
+      (err) => reject(err),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 1000 }
+    )
+  })
+}
 
 // 地図ピンの共通形。Supabase 由来とダミー由来を同じ形に正規化して描画する。
 type MarkerData = {
@@ -89,6 +105,9 @@ export default function MapView() {
 
   // 解消フロー用：解消中のピン key（連打防止＋「解消中…」表示に使う）
   const [resolvingKey, setResolvingKey] = useState<string | null>(null)
+  // 7-B：解消は「写真＋現在地」が必須。写真選択用の hidden input と対象ピンを保持。
+  const resolvePhotoInputRef = useRef<HTMLInputElement | null>(null)
+  const resolveTargetRef = useRef<MarkerData | null>(null)
 
   // hotspots を取得して markers に反映（報告後の再取得にも使う）。
   const load = useCallback(async () => {
@@ -185,30 +204,60 @@ export default function MapView() {
     }
   }
 
-  // ピンを解消する。解消者は backend が JWT から特定する（key=hotspot_id を渡すだけ）。
-  // 7-A: 写真・GPS は送らない（任意。7-B で必須化）。
-  async function handleResolve(m: MarkerData) {
+  // 解消ボタン → 写真選択を起動（7-B：写真必須）。対象ピンを覚えておく。
+  function startResolve(m: MarkerData) {
+    setError(null)
+    setNotice(null)
+    resolveTargetRef.current = m
+    resolvePhotoInputRef.current?.click()
+  }
+
+  // 写真が選ばれたら：現在地を取得 → 写真をアップロード → 解消APIを叩く。
+  // 解消者は backend が JWT から特定する。現地証明（写真＋GPS）は backend が検証する（7-B）。
+  async function onResolvePhotoPicked(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    const m = resolveTargetRef.current
+    e.target.value = '' // 同じ写真を選び直せるようリセット
+    if (!file || !m || userId === null) return
+
     setResolvingKey(m.key)
     setError(null)
     setNotice(null)
     try {
-      const result = await resolveHotspot(m.key)
-      // 成功 → 再取得してピンを resolved（セージ）に反映
+      // 1) 現在地（現地証明）。許可されないと解消できない。
+      let pos: { lat: number; lng: number }
+      try {
+        pos = await getCurrentPosition()
+      } catch {
+        setError('解消には現在地の取得が必要です（位置情報を許可してください）。')
+        return
+      }
+      // 2) 写真を Storage にアップロード
+      const photoUrl = await uploadPostPhoto(userId, file)
+      // 3) 解消（写真URL＋現在地を送る）
+      const result = await resolveHotspot(m.key, {
+        photoUrl,
+        lat: pos.lat,
+        lng: pos.lng,
+      })
       await load()
       const bonus =
         result.reporter_bonus > 0 ? `（報告者に +${result.reporter_bonus}pt）` : ''
       setNotice(`解消しました　+${result.resolver_points}pt${bonus}`)
-    } catch (e) {
-      if (e instanceof ApiAuthError) {
+    } catch (err) {
+      if (err instanceof ApiAuthError) {
         setError('ログインが必要です。ログインし直してください。')
-      } else if (e instanceof AlreadyResolvedError) {
+      } else if (err instanceof AlreadyResolvedError) {
         setError('既に解消されています。')
-        await load() // 最新状態（セージ）に合わせる
+        await load()
+      } else if (err instanceof Error && /too far/i.test(err.message)) {
+        setError('報告地点の近く（100m以内）にいる必要があります。')
       } else {
-        setError(e instanceof Error ? e.message : '解消に失敗しました。')
+        setError(err instanceof Error ? err.message : '解消に失敗しました。')
       }
     } finally {
       setResolvingKey(null)
+      resolveTargetRef.current = null
     }
   }
 
@@ -270,11 +319,11 @@ export default function MapView() {
                   ) : (
                     <button
                       type="button"
-                      onClick={() => void handleResolve(m)}
+                      onClick={() => startResolve(m)}
                       disabled={resolvingKey === m.key}
                       className="rounded-md bg-sage px-3.5 py-1.5 text-[12px] font-medium tracking-wide text-white transition-colors duration-200 hover:bg-sage-hover disabled:opacity-50"
                     >
-                      {resolvingKey === m.key ? '解消中…' : '解消する'}
+                      {resolvingKey === m.key ? '解消中…' : '写真を撮って解消'}
                     </button>
                   )}
                 </span>
@@ -290,6 +339,16 @@ export default function MapView() {
           </Marker>
         )}
       </MapContainer>
+
+      {/* 解消用の写真選択（7-B 現地証明）。ボタンから click() で起動する。 */}
+      <input
+        ref={resolvePhotoInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={(e) => void onResolvePhotoPicked(e)}
+      />
 
       {/* ── ヘッダー（ブランド + 認証状態）。Leaflet コントロールより前面 ── */}
       <header className="pointer-events-none absolute inset-x-0 top-0 z-[1000]">

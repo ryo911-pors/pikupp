@@ -45,7 +45,7 @@ async function getAccessToken(): Promise<string | null> {
 }
 
 // ホットスポットを解消する。
-// 7-A: 写真・GPS は任意（送る口だけ用意。7-B で必須化＋距離チェック）。
+// 7-B: 写真・GPS は必須。backend が現地証明（報告地点との距離）を検証する。
 export async function resolveHotspot(
   hotspotId: string,
   opts?: { photoUrl?: string | null; lat?: number | null; lng?: number | null }

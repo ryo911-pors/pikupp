@@ -15,6 +15,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,6 +28,9 @@ REF_TABLE = "hotspots"
 TYPE_RESOLVED = "hotspot_resolved"
 TYPE_THANKS = "hotspot_resolved_thanks"
 
+# 7-B 現地証明：解消者は報告地点から半径この距離（m）以内にいること。
+RESOLVE_RADIUS_M = 100.0
+
 
 class HotspotNotFound(Exception):
     """対象の hotspot が存在しない（→ 404）。"""
@@ -34,6 +38,55 @@ class HotspotNotFound(Exception):
 
 class AlreadyResolved(Exception):
     """既に解消済み、または競合で二重解消が弾かれた（→ 409）。冪等に扱う。"""
+
+
+class EvidenceMissing(Exception):
+    """7-B: 写真 or GPS が欠落（自演防止の現地証明が成立しない）（→ 400）。"""
+
+
+class TooFarFromHotspot(Exception):
+    """7-B: 解消者が報告地点から離れすぎ（現地にいない）（→ 400）。"""
+
+
+def check_evidence_present(photo_url: str | None, lat: float | None, lng: float | None) -> None:
+    """7-B: 写真必須・GPS必須を検証する純関数（PostGIS 非依存・テスト可能）。"""
+    if photo_url is None or not photo_url.strip():
+        raise EvidenceMissing("photo required")
+    if lat is None or lng is None:
+        raise EvidenceMissing("location required")
+
+
+async def assert_resolver_near(
+    db: AsyncSession,
+    hotspot_id: uuid.UUID,
+    lat: float,
+    lng: float,
+    radius_m: float = RESOLVE_RADIUS_M,
+) -> None:
+    """7-B: 解消者が報告地点の近くにいることを PostGIS で検証する。
+
+    本番（Postgres+PostGIS）専用。距離判定は DB 側 ST_DWithin で行う。
+    SQLite を使うテストでは、この呼び出しを依存差し替えで no-op にする。
+    """
+    result = await db.execute(
+        text(
+            """
+            SELECT ST_DWithin(
+                location,
+                ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography,
+                :radius
+            )
+            FROM public.hotspots
+            WHERE id = :id
+            """
+        ),
+        {"lng": lng, "lat": lat, "radius": radius_m, "id": str(hotspot_id)},
+    )
+    near = result.scalar()
+    if near is None:
+        raise HotspotNotFound(str(hotspot_id))
+    if not near:
+        raise TooFarFromHotspot(str(hotspot_id))
 
 
 @dataclass(frozen=True)
@@ -57,10 +110,11 @@ async def resolve_hotspot(
 ) -> ResolveResult:
     """hotspot を解消し、ポイントを point_logs に記録する。原子的に実行する。
 
-    7-A では photo_url / lat / lng は受け取るだけで検証しない（口だけ用意）。
+    7-B の現地証明（写真必須・GPS必須・報告地点との距離チェック）は、呼び出し前に
+    router 側の `verify_resolution_evidence` 依存で検証済み（PostGIS 非依存に保つため
+    分離してある）。この関数は引数の photo_url / lat / lng を保存はしない（証拠は検証専用）。
     """
-    # 7-B でここに「写真必須・GPS必須・報告地点との距離チェック」を入れる。
-    _ = (photo_url, lat, lng)  # 現状は未使用（受け取り口のみ）
+    _ = (photo_url, lat, lng)  # 値はここでは未使用（検証は router 依存で完了済み）
 
     try:
         async with session.begin():
